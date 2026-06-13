@@ -122,17 +122,91 @@ class AIClient(private val context: Context) {
 
         if (!success) { callback(false, body); return }
 
-        val afterNotes   = handleAgentNoteCreation(body)
-        val (cleanResponse, changes) = parseFileWrites(afterNotes)
+        // Run all parsers in sequence — notes first, then file edits, then full writes
+        val afterNotes = handleAgentNoteCreation(body)
+        val (afterEdits, editChanges)   = parseFileEdits(afterNotes)
+        val (cleanResponse, writeChanges) = parseFileWrites(afterEdits)
+        val allChanges = editChanges + writeChanges
 
-        if (changes.isNotEmpty()) {
-            applyChangesWithConfirmation(changes, cleanResponse, callback)
+        if (allChanges.isNotEmpty()) {
+            applyChangesWithConfirmation(allChanges, cleanResponse, callback)
         } else {
             callback(true, cleanResponse)
         }
     }
 
-    // ── Parse FILE_WRITE blocks ───────────────────────────────────────────
+    // ── Parse FILE_EDIT blocks (Aider-style SEARCH/REPLACE diffs) ───────────
+    // Format:
+    //   FILE_EDIT:path/to/file.kt
+    //   <<<<<<< SEARCH
+    //   exact existing text to replace
+    //   =======
+    //   replacement text
+    //   >>>>>>> REPLACE
+    //   FILE_END
+    //
+    // Multiple SEARCH/REPLACE pairs are supported inside one FILE_EDIT block.
+    // Empty SEARCH = insert replacement at top of file (create or prepend).
+
+    private fun parseFileEdits(response: String): Pair<String, List<PendingChange>> {
+        val changes = mutableListOf<PendingChange>()
+        var result  = response
+        val PREFIX  = "FILE_EDIT:"
+        val END     = "FILE_END"
+        val S_MARK  = "<<<<<<< SEARCH"
+        val DIV     = "======="
+        val R_MARK  = ">>>>>>> REPLACE"
+
+        var pos = 0
+        while (true) {
+            val blockStart = result.indexOf(PREFIX, pos).takeIf { it >= 0 } ?: break
+            val nameEnd    = result.indexOf('\n', blockStart).takeIf { it >= 0 } ?: break
+            val filename   = result.substring(blockStart + PREFIX.length, nameEnd).trim()
+            val bodyStart  = nameEnd + 1
+            // FILE_END is required for edits (content is structured, not freeform)
+            val blockEnd   = result.indexOf(END, bodyStart).takeIf { it >= 0 } ?: break
+            val body       = result.substring(bodyStart, blockEnd)
+
+            val existingUri = findFileUri(filename)
+            val oldContent  = existingUri?.let { readUri(it) } ?: ""
+            var newContent  = oldContent
+
+            // Walk all SEARCH/REPLACE pairs inside this block
+            var bPos = 0
+            var patchApplied = false
+            while (true) {
+                val si = body.indexOf(S_MARK, bPos).takeIf { it >= 0 } ?: break
+                val afterS = body.indexOf('\n', si).takeIf { it >= 0 }?.plus(1) ?: break
+                val di = body.indexOf(DIV, afterS).takeIf { it >= 0 } ?: break
+                val ri = body.indexOf(R_MARK, di).takeIf { it >= 0 } ?: break
+                val searchText  = body.substring(afterS, di).trimEnd('\n')
+                val replStart   = body.indexOf('\n', di).takeIf { it >= 0 }?.plus(1) ?: (di + DIV.length)
+                val replaceText = body.substring(replStart, ri).trimEnd('\n')
+                newContent = if (searchText.isEmpty()) {
+                    replaceText + if (newContent.isNotEmpty()) "\n$newContent" else ""
+                } else {
+                    newContent.replace(searchText, replaceText)
+                }
+                patchApplied = true
+                bPos = ri + R_MARK.length
+            }
+
+            if (filename.isNotEmpty() && patchApplied && newContent != oldContent) {
+                changes.add(PendingChange(filename, oldContent, newContent, existingUri))
+                val fullBlock = result.substring(blockStart, blockEnd + END.length)
+                result = result.replace(fullBlock, "[Edit queued: $filename]")
+                pos = blockStart
+            } else {
+                pos = blockEnd + END.length
+            }
+        }
+        return result to changes
+    }
+
+    // ── Parse FILE_WRITE blocks (full file create / overwrite) ────────────
+    // Hardened:
+    //   • Strips markdown code fences (```lang ... ```) the AI wraps content in
+    //   • Tolerates a missing FILE_END on the very last block (uses end-of-string)
 
     private fun parseFileWrites(response: String): Pair<String, List<PendingChange>> {
         val changes = mutableListOf<PendingChange>()
@@ -140,30 +214,38 @@ class AIClient(private val context: Context) {
         val prefix  = "FILE_WRITE:"
         val end     = "FILE_END"
 
-        var search = result
-        while (search.contains(prefix)) {
-            val startIdx   = search.indexOf(prefix)
-            val lineEnd    = search.indexOf('\n', startIdx).takeIf { it >= 0 } ?: break
-            val filename   = search.substring(startIdx + prefix.length, lineEnd).trim()
-            val cStart     = lineEnd + 1
-            val endIdx     = search.indexOf(end, cStart)
+        var pos = 0
+        while (true) {
+            val blockStart = result.indexOf(prefix, pos).takeIf { it >= 0 } ?: break
+            val nameEnd    = result.indexOf('\n', blockStart).takeIf { it >= 0 } ?: break
+            val filename   = result.substring(blockStart + prefix.length, nameEnd).trim()
+            val cStart     = nameEnd + 1
 
-            // If no FILE_END found, stop — don't consume the rest of the response
-            if (endIdx < 0) break
+            // Accept FILE_END or fall back to end-of-string for the last block
+            val endIdx = result.indexOf(end, cStart)
+                .takeIf { it >= 0 } ?: result.length
 
-            val newContent = search.substring(cStart, endIdx).trim()
+            var newContent = result.substring(cStart, endIdx).trim()
+
+            // Strip markdown code fences the AI often wraps content in:
+            //   ```kotlin\n...\n```  or  ```\n...\n```
+            newContent = newContent
+                .replace(Regex("^```[a-zA-Z0-9]*\\n"), "")
+                .replace(Regex("\\n```\\s*$"), "")
+                .trim()
 
             if (filename.isNotEmpty() && newContent.isNotEmpty()) {
                 val existingUri = findFileUri(filename)
                 val oldContent  = existingUri?.let { readUri(it) } ?: ""
                 changes.add(PendingChange(filename, oldContent, newContent, existingUri))
-
-                val block = search.substring(startIdx, endIdx + end.length)
-                result = result.replace(block, "[File change ready: $filename]")
+                val blockEndPos = if (endIdx < result.length) endIdx + end.length else result.length
+                val block = result.substring(blockStart, blockEndPos)
+                result = result.replace(block, "[File queued: $filename]")
+                pos = blockStart
+            } else {
+                pos = if (endIdx < result.length) endIdx + end.length else result.length
             }
-            search = search.substring(endIdx + end.length)
         }
-
         return result to changes
     }
 
@@ -251,28 +333,41 @@ class AIClient(private val context: Context) {
         val sb = StringBuilder()
         sb.append(
             "You are RD Agent — an autonomous coding agent inside Ryzix Code IDE.\n" +
-            "You operate like a senior engineer: you plan, execute, and deliver complete solutions independently.\n\n" +
+            "You operate like a senior engineer: plan, execute, and deliver complete solutions independently.\n\n" +
             "═══ AUTONOMOUS OPERATION RULES ═══\n" +
-            "1. Complete tasks end-to-end without asking permission at each step.\n" +
-            "2. When given a task, think through it, then execute ALL required file changes in one response.\n" +
-            "3. Proactively fix bugs you notice while working — don't leave broken code.\n" +
-            "4. Provide a clear summary at the end of every response listing what you changed and why.\n" +
-            "5. If a task is ambiguous, make a reasonable decision and proceed — explain your choice in the summary.\n\n" +
-            "═══ FILE OPERATIONS ═══\n" +
-            "To CREATE or EDIT a file in the user's project:\n" +
-            "  FILE_WRITE:path/to/filename.ext\n" +
-            "  <COMPLETE file content — never truncate>\n" +
+            "1. Complete tasks end-to-end. Do NOT ask permission between steps.\n" +
+            "2. Execute ALL required file changes in ONE response.\n" +
+            "3. Proactively fix bugs you spot — don't leave broken code behind.\n" +
+            "4. End every response with a short summary: what changed and why.\n" +
+            "5. If a task is ambiguous, make a decision and proceed — explain it in the summary.\n\n" +
+            "═══ FILE OPERATIONS ═══\n\n" +
+            "▶ EDITING an existing file — use FILE_EDIT (targeted diff, preferred):\n" +
+            "  FILE_EDIT:path/to/file.kt\n" +
+            "  <<<<<<< SEARCH\n" +
+            "  exact existing lines to replace (copy verbatim, include 3-5 lines of context)\n" +
+            "  =======\n" +
+            "  new replacement lines\n" +
+            "  >>>>>>> REPLACE\n" +
             "  FILE_END\n\n" +
-            "Rules for FILE_WRITE:\n" +
-            "- Always output COMPLETE file content. Never use '...' or omit sections.\n" +
-            "- You can write multiple files in a single response — include all needed FILE_WRITE blocks.\n" +
-            "- The user will see a diff and can ACCEPT or REJECT each file change.\n" +
-            "- For files in subdirectories use the path: src/main/java/com/example/Foo.kt\n" +
-            "- Every FILE_WRITE MUST end with FILE_END on its own line.\n\n" +
-            "To save personal notes or task plans (NOT project files):\n" +
+            "  • You can stack multiple SEARCH/REPLACE pairs inside one FILE_EDIT block.\n" +
+            "  • The SEARCH text must match the file exactly (whitespace, indentation included).\n" +
+            "  • Include enough context (3-5 surrounding lines) so the SEARCH block is unique.\n" +
+            "  • Empty SEARCH = prepend replacement to the top of the file.\n\n" +
+            "▶ CREATING a new file — use FILE_WRITE:\n" +
+            "  FILE_WRITE:path/to/newfile.ext\n" +
+            "  <complete file content>\n" +
+            "  FILE_END\n\n" +
+            "  • Use FILE_WRITE ONLY for new files or when a complete rewrite is needed.\n" +
+            "  • For subdirectory paths write the full path: src/main/java/com/example/Foo.kt\n\n" +
+            "▶ SAVING agent notes (NOT project files):\n" +
             "  FILE_CREATE:notename.md\n" +
             "  <content>\n" +
             "  FILE_END\n\n" +
+            "⚠ CRITICAL RULES — violating these breaks file creation:\n" +
+            "  - NEVER wrap FILE_WRITE or FILE_EDIT blocks inside markdown code fences (``` or ~~~).\n" +
+            "  - Every block MUST end with FILE_END on its own line.\n" +
+            "  - Never truncate file content with '...' or comments like '// rest unchanged'.\n" +
+            "  - The user sees a diff dialog (ACCEPT / REJECT) for every change before it is written.\n\n" +
             "═══ CODING STANDARDS ═══\n" +
             "- Write clean, idiomatic code matching the project's existing style.\n" +
             "- This is an Android/Kotlin project — follow Android best practices.\n" +

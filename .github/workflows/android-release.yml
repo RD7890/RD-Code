@@ -63,25 +63,31 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
-      - name: Get version name
+      - name: Get version name and rename APK
         id: version
         run: |
-          VERSION=$(grep versionName app/build.gradle | grep -o '"[0-9.]*"' | tr -d '"' | head -1)
-          echo "name=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+          VERSION=$(grep 'versionName' app/build.gradle | grep -oP '"\K[^"]+' | head -1)
+          SLUG=$(echo "$VERSION" | tr '.' '-')
+          APK_NAME="RD-Code-v${SLUG}.apk"
+          mv app/build/outputs/apk/release/app-release.apk \
+             "app/build/outputs/apk/release/${APK_NAME}"
+          echo "name=$VERSION"   >> $GITHUB_OUTPUT
+          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+          echo "Renamed APK to: $APK_NAME"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.name }}-build.${{ github.run_number }}
-          name: "Ryzix Code v${{ steps.version.outputs.name }} (Build #${{ github.run_number }})"
+          name: "RD-Code v${{ steps.version.outputs.name }} (Build #${{ github.run_number }})"
           body: |
-            ## Ryzix Code v${{ steps.version.outputs.name }}
+            ## RD-Code v${{ steps.version.outputs.name }}
 
             **Signed release build** — install and update without uninstalling.
 
             | Field | Value |
             |-------|-------|
+            | APK | `${{ steps.version.outputs.apk_name }}` |
             | Branch | `${{ github.ref_name }}` |
             | Commit | `${{ github.sha }}` |
             | Build | #${{ github.run_number }} |
@@ -90,6 +96,6 @@ jobs:
             > Updates: just install over the existing version — same signing key every build.
           draft: false
           prerelease: false
-          files: app/build/outputs/apk/release/app-release.apk
+          files: app/build/outputs/apk/release/${{ steps.version.outputs.apk_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
