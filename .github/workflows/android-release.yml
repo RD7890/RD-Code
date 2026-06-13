@@ -55,30 +55,40 @@ jobs:
           echo "${{ secrets.SIGNING_KEYSTORE_BASE64 }}" | base64 -d > signing/ryzix.p12
           echo "Keystore decoded ($(wc -c < signing/ryzix.p12) bytes)"
 
+      - name: Compute version
+        id: version
+        run: |
+          PATCH=${{ github.run_number }}
+          VERSION="9.0.${PATCH}"
+          SLUG=$(echo "$VERSION" | tr '.' '-')
+          APK_NAME="RD-Code-v${SLUG}.apk"
+          echo "code=${PATCH}"      >> $GITHUB_OUTPUT
+          echo "name=${VERSION}"    >> $GITHUB_OUTPUT
+          echo "slug=${SLUG}"       >> $GITHUB_OUTPUT
+          echo "apk_name=${APK_NAME}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION} (code: ${PATCH})"
+
       - name: Build release APK
         env:
           SIGNING_STORE_FILE: ${{ github.workspace }}/signing/ryzix.p12
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
-
-      - name: Get version name and rename APK
-        id: version
         run: |
-          VERSION=$(grep 'versionName' app/build.gradle | grep -oP '"\K[^"]+' | head -1)
-          SLUG=$(echo "$VERSION" | tr '.' '-')
-          APK_NAME="RD-Code-v${SLUG}.apk"
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -PversionCode=${{ steps.version.outputs.code }} \
+            -PversionName=${{ steps.version.outputs.name }}
+
+      - name: Rename APK
+        run: |
           mv app/build/outputs/apk/release/app-release.apk \
-             "app/build/outputs/apk/release/${APK_NAME}"
-          echo "name=$VERSION"   >> $GITHUB_OUTPUT
-          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
-          echo "Renamed APK to: $APK_NAME"
+             "app/build/outputs/apk/release/${{ steps.version.outputs.apk_name }}"
+          echo "Renamed APK to: ${{ steps.version.outputs.apk_name }}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.name }}-build.${{ github.run_number }}
+          tag_name: v${{ steps.version.outputs.name }}
           name: "RD-Code v${{ steps.version.outputs.name }} (Build #${{ github.run_number }})"
           body: |
             ## RD-Code v${{ steps.version.outputs.name }}
@@ -91,6 +101,14 @@ jobs:
             | Branch | `${{ github.ref_name }}` |
             | Commit | `${{ github.sha }}` |
             | Build | #${{ github.run_number }} |
+
+            ### What's new in v${{ steps.version.outputs.name }}
+            - Sora code editor with line numbers and dark theme
+            - HTML preview server (tap ▶ to run, opens WebView)
+            - Parser fix: FILE_EDIT blocks no longer leak as raw text
+            - Stronger AI system prompt — no more full-file rewrites
+            - New premium file icons (HTML, CSS, JS, TS, Python)
+            - APK version auto-bumps on every build
 
             > Install: download the APK, allow unknown sources, tap to install.
             > Updates: just install over the existing version — same signing key every build.

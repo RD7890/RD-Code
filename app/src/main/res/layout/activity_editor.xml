@@ -73,31 +73,13 @@
             android:background="#1E1E22"
             app:layout_constraintTop_toBottomOf="@id/topBar"/>
 
-        <!-- Code editor -->
-        <ScrollView
-            android:id="@+id/editorScroll"
+        <!-- Sora code editor — replaces ScrollView+EditText -->
+        <io.github.rosemoe.sora.widget.CodeEditor
+            android:id="@+id/editor"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:background="#0F0F11"
             app:layout_constraintTop_toBottomOf="@id/topDiv"
-            app:layout_constraintBottom_toTopOf="@id/symbolKeysScroll">
-            <EditText
-                android:id="@+id/editor"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="#0F0F11"
-                android:fontFamily="monospace"
-                android:gravity="top|start"
-                android:hint="Open a file to edit..."
-                android:inputType="textMultiLine|textNoSuggestions"
-                android:paddingLeft="14dp"
-                android:paddingRight="14dp"
-                android:paddingTop="12dp"
-                android:paddingBottom="40dp"
-                android:textColor="#D4D4D4"
-                android:textColorHint="#252530"
-                android:textSize="13sp"/>
-        </ScrollView>
+            app:layout_constraintBottom_toTopOf="@id/symbolKeysScroll"/>
 
         <!-- Symbol key row -->
         <HorizontalScrollView
@@ -176,6 +158,17 @@
                     android:src="@drawable/ic_keyboard_hide" android:padding="9dp"
                     android:background="@android:color/transparent"
                     android:contentDescription="Hide keyboard"/>
+
+                <View android:layout_width="1dp" android:layout_height="22dp"
+                    android:background="#252529"
+                    android:layout_marginLeft="4dp" android:layout_marginRight="4dp"/>
+
+                <!-- Run / HTML preview button -->
+                <ImageButton android:id="@+id/btnRun"
+                    android:layout_width="42dp" android:layout_height="36dp"
+                    android:src="@drawable/ic_run" android:padding="8dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Run preview"/>
             </LinearLayout>
         </HorizontalScrollView>
     </androidx.constraintlayout.widget.ConstraintLayout>
@@ -255,7 +248,6 @@
                 android:visibility="gone"
                 android:paddingTop="8dp">
 
-                <!-- Query + Go button -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -293,7 +285,6 @@
                         android:background="#1A1A1D"/>
                 </LinearLayout>
 
-                <!-- Chips: Aa | [w] -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -331,7 +322,6 @@
                 <View android:layout_width="match_parent" android:layout_height="1dp"
                     android:background="#1E1E22"/>
 
-                <!-- Status text -->
                 <TextView
                     android:id="@+id/tvSearchStatus"
                     android:layout_width="match_parent"
@@ -344,7 +334,6 @@
                     android:paddingBottom="4dp"
                     android:visibility="gone"/>
 
-                <!-- Results list -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/rvSearchResults"
                     android:layout_width="match_parent"
@@ -365,7 +354,6 @@
         android:background="#141416"
         android:orientation="vertical">
 
-        <!-- Agent header -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="48dp"
@@ -416,7 +404,6 @@
             android:padding="10dp"
             android:clipToPadding="false"/>
 
-        <!-- Chat input row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

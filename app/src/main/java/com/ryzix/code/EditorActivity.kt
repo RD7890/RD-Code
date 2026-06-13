@@ -11,49 +11,53 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.Editable
 import android.text.InputType
-import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.Window
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
+import android.webkit.WebView
 import android.widget.*
 import androidx.core.view.GravityCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import io.github.rosemoe.sora.event.ContentChangeEvent
+import io.github.rosemoe.sora.event.SelectionChangeEvent
+import io.github.rosemoe.sora.lang.EmptyLanguage
+import io.github.rosemoe.sora.widget.CodeEditor
+import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 import java.util.concurrent.Executors
 
 // ─── Per-tab state ─────────────────────────────────────────────────────────────
 data class OpenTab(
     val uri:       Uri,
     val name:      String,
-    var content:   String              = "",
-    var cursorPos: Int                 = 0,
-    var modified:  Boolean             = false,
-    val undoStack: MutableList<String> = mutableListOf(),
-    val redoStack: MutableList<String> = mutableListOf()
+    var content:   String  = "",
+    var cursorPos: Int     = 0,
+    var modified:  Boolean = false
 )
 
 class EditorActivity : Activity() {
 
     // ─── Views ────────────────────────────────────────────────────────────
-    private lateinit var drawer:       DrawerLayout
-    private lateinit var editor:       EditText
-    private lateinit var tvLineCol:    TextView
-    private lateinit var tabsContainer:LinearLayout
-    private lateinit var tabsScroll:   HorizontalScrollView
-    private lateinit var rvTree:       RecyclerView
-    private lateinit var rvChat:       RecyclerView
-    private lateinit var etInput:      EditText
-    private lateinit var panelExplorer:View
-    private lateinit var panelSearch:  View
-    private lateinit var iconExplorer: ImageView
-    private lateinit var iconSearch:   ImageView
+    private lateinit var drawer:        DrawerLayout
+    private lateinit var editor:        CodeEditor
+    private lateinit var tvLineCol:     TextView
+    private lateinit var tabsContainer: LinearLayout
+    private lateinit var tabsScroll:    HorizontalScrollView
+    private lateinit var rvTree:        RecyclerView
+    private lateinit var rvChat:        RecyclerView
+    private lateinit var etInput:       EditText
+    private lateinit var panelExplorer: View
+    private lateinit var panelSearch:   View
+    private lateinit var iconExplorer:  ImageView
+    private lateinit var iconSearch:    ImageView
 
     // ─── State ────────────────────────────────────────────────────────────
     private var folderUri: Uri? = null
@@ -73,6 +77,9 @@ class EditorActivity : Activity() {
     private val searchExecutor = Executors.newSingleThreadExecutor()
     private val searchHandler  = Handler(Looper.getMainLooper())
 
+    // ─── HTTP preview server ──────────────────────────────────────────────
+    private var localServer: LocalServer? = null
+
     // ─── Lifecycle ────────────────────────────────────────────────────────
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -81,7 +88,9 @@ class EditorActivity : Activity() {
         val uriStr = intent.getStringExtra("FOLDER_URI")
         if (uriStr == null) { finish(); return }
         folderUri = Uri.parse(uriStr)
-        ai        = AIClient(this)
+        ai = AIClient(this)
+
+        // Inline diff cards in the chat (no blocking dialog)
         ai.onPendingChange = { change, cb ->
             runOnUiThread {
                 val diffMsg = ChatMessage(
@@ -96,7 +105,8 @@ class EditorActivity : Activity() {
                             val openName = if (activeIdx >= 0) tabs[activeIdx].name else ""
                             if (openName == change.filename && activeIdx >= 0) {
                                 try {
-                                    val txt = contentResolver.openInputStream(tabs[activeIdx].uri)
+                                    val txt = contentResolver
+                                        .openInputStream(tabs[activeIdx].uri)
                                         ?.bufferedReader()?.readText()
                                     if (txt != null) {
                                         skipUndo = true; editor.setText(txt); skipUndo = false
@@ -128,10 +138,8 @@ class EditorActivity : Activity() {
         iconExplorer  = findViewById(R.id.iconExplorer)
         iconSearch    = findViewById(R.id.iconSearch)
 
-        editor.typeface = Typeface.MONOSPACE
-        editor.textSize = 13f
-
-        setupEditorWatcher()
+        setupEditor()
+        setupEditorEvents()
         setupTree()
         setupChat()
         setupToolbar()
@@ -139,18 +147,21 @@ class EditorActivity : Activity() {
         setupSearchPanel()
 
         findViewById<View>(R.id.btnMenu).setOnClickListener  { drawer.openDrawer(GravityCompat.START) }
-        findViewById<View>(R.id.btnAgent).setOnClickListener { drawer.openDrawer(GravityCompat.END)   }
+        findViewById<View>(R.id.btnAgent).setOnClickListener { drawer.openDrawer(GravityCompat.END) }
     }
 
-    // FIX: Auto-save modified tabs when the activity pauses (app goes to background,
-    // phone call, screen off, etc.) to prevent data loss on force-kill.
     override fun onPause() {
         super.onPause()
         autoSaveAll()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        localServer?.stop()
+        editor.release()
+    }
+
     private fun autoSaveAll() {
-        // Sync current editor text into the active tab before saving
         saveCurrentTabState()
         for (tab in tabs) {
             if (!tab.modified) continue
@@ -165,37 +176,87 @@ class EditorActivity : Activity() {
         }
     }
 
-    // ─── Editor TextWatcher + Line:Col ────────────────────────────────────
-    private fun setupEditorWatcher() {
-        editor.addTextChangedListener(object : TextWatcher {
-            private var prev = ""
-            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {
-                if (!skipUndo) prev = s?.toString() ?: ""
+    // ─── Sora editor setup ────────────────────────────────────────────────
+    private fun setupEditor() {
+        try { editor.typefaceText = Typeface.MONOSPACE } catch (_: Exception) {}
+        editor.setTextSize(13f)
+        try { editor.wordwrap = false } catch (_: Exception) {}
+
+        try {
+            val scheme = EditorColorScheme()
+            scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,        Color.parseColor("#0F0F11"))
+            scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND,   Color.parseColor("#0A0A0C"))
+            scheme.setColor(EditorColorScheme.LINE_NUMBER,              Color.parseColor("#3A3A44"))
+            scheme.setColor(EditorColorScheme.CURRENT_LINE,             Color.parseColor("#151518"))
+            scheme.setColor(EditorColorScheme.TEXT_NORMAL,              Color.parseColor("#D4D4D4"))
+            scheme.setColor(EditorColorScheme.KEYWORD,                  Color.parseColor("#569CD6"))
+            scheme.setColor(EditorColorScheme.STRING,                   Color.parseColor("#CE9178"))
+            scheme.setColor(EditorColorScheme.COMMENT,                  Color.parseColor("#6A9955"))
+            scheme.setColor(EditorColorScheme.OPERATOR,                 Color.parseColor("#D4D4D4"))
+            scheme.setColor(EditorColorScheme.SELECTED_TEXT_BACKGROUND, Color.parseColor("#264F78"))
+            scheme.setColor(EditorColorScheme.SELECTION_INSERT,         Color.parseColor("#E52A3F"))
+            scheme.setColor(EditorColorScheme.SELECTION_HANDLE,         Color.parseColor("#E52A3F"))
+            editor.colorScheme = scheme
+        } catch (_: Exception) {}
+
+        editor.setEditorLanguage(EmptyLanguage())
+    }
+
+    // ─── Editor event subscriptions ───────────────────────────────────────
+    private fun setupEditorEvents() {
+        editor.subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
+            if (!skipUndo && activeIdx >= 0) {
+                tabs[activeIdx].modified = true
+                updateTabLabel(activeIdx)
             }
-            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                if (!skipUndo && activeIdx >= 0) {
-                    val tab = tabs[activeIdx]
-                    tab.undoStack.add(prev)
-                    if (tab.undoStack.size > 200) tab.undoStack.removeAt(0)
-                    tab.redoStack.clear()
-                    tab.modified = true
-                    updateTabLabel(activeIdx)
-                }
-                updateLineCol()
-            }
-        })
-        editor.setOnClickListener { updateLineCol() }
-        editor.setOnKeyListener   { _, _, _ -> updateLineCol(); false }
+            updateLineCol()
+        }
+        editor.subscribeEvent(SelectionChangeEvent::class.java) { _, _ ->
+            updateLineCol()
+        }
     }
 
     private fun updateLineCol() {
         try {
-            val txt = editor.text ?: return
-            val sel = editor.selectionStart.coerceAtLeast(0)
-            val line = txt.substring(0, sel).count { it == '\n' } + 1
-            val col  = sel - (txt.lastIndexOf('\n', sel - 1) + 1) + 1
-            tvLineCol.text = "$line:$col"
+            tvLineCol.text = "${editor.cursor.leftLine + 1}:${editor.cursor.leftColumn + 1}"
+        } catch (_: Exception) {}
+    }
+
+    // ─── Cursor helpers ───────────────────────────────────────────────────
+
+    private fun charOffsetToLineCol(text: String, offset: Int): Pair<Int, Int> {
+        val safe   = offset.coerceIn(0, text.length)
+        val before = text.substring(0, safe)
+        val line   = before.count { it == '\n' }
+        val col    = safe - (before.lastIndexOf('\n') + 1)
+        return line to col
+    }
+
+    private fun editorCursorPos(): Int {
+        return try {
+            val txt   = editor.text.toString()
+            val line  = editor.cursor.leftLine
+            val col   = editor.cursor.leftColumn
+            val lines = txt.split('\n')
+            var pos   = 0
+            for (i in 0 until minOf(line, lines.size)) pos += lines[i].length + 1
+            (pos + col).coerceAtMost(txt.length)
+        } catch (_: Exception) { 0 }
+    }
+
+    private fun editorSetSel(charPos: Int) {
+        try {
+            val (l, c) = charOffsetToLineCol(editor.text.toString(), charPos)
+            editor.setSelection(l, c)
+        } catch (_: Exception) {}
+    }
+
+    private fun editorSetSel(startChar: Int, endChar: Int) {
+        try {
+            val txt      = editor.text.toString()
+            val (sl, sc) = charOffsetToLineCol(txt, startChar)
+            val (el, ec) = charOffsetToLineCol(txt, endChar)
+            editor.setSelectionRegion(sl, sc, el, ec)
         } catch (_: Exception) {}
     }
 
@@ -218,7 +279,6 @@ class EditorActivity : Activity() {
         val content = try {
             contentResolver.openInputStream(doc.uri)?.bufferedReader()?.readText() ?: ""
         } catch (_: Exception) { "" }
-
         tabs.add(OpenTab(uri = doc.uri, name = doc.name ?: "?", content = content))
         switchTab(tabs.size - 1)
         drawer.closeDrawer(GravityCompat.START)
@@ -228,7 +288,7 @@ class EditorActivity : Activity() {
         if (activeIdx < 0 || activeIdx >= tabs.size) return
         val tab = tabs[activeIdx]
         tab.content   = editor.text.toString()
-        tab.cursorPos = editor.selectionStart
+        tab.cursorPos = editorCursorPos()
     }
 
     private fun switchTab(idx: Int) {
@@ -238,7 +298,10 @@ class EditorActivity : Activity() {
         val tab = tabs[idx]
         skipUndo = true
         editor.setText(tab.content)
-        try { editor.setSelection(tab.cursorPos.coerceAtMost(tab.content.length)) } catch (_: Exception) {}
+        try {
+            val (l, c) = charOffsetToLineCol(tab.content, tab.cursorPos)
+            editor.setSelection(l, c)
+        } catch (_: Exception) {}
         skipUndo = false
         renderTabs()
         updateLineCol()
@@ -273,13 +336,10 @@ class EditorActivity : Activity() {
 
     private fun renderTabs() {
         tabsContainer.removeAllViews()
-        for ((i, tab) in tabs.withIndex()) {
-            tabsContainer.addView(makeTabChip(tab, i, i == activeIdx))
-        }
+        for ((i, tab) in tabs.withIndex()) tabsContainer.addView(makeTabChip(tab, i, i == activeIdx))
         tabsScroll.post {
-            if (activeIdx >= 0 && activeIdx < tabsContainer.childCount) {
+            if (activeIdx >= 0 && activeIdx < tabsContainer.childCount)
                 tabsScroll.smoothScrollTo(tabsContainer.getChildAt(activeIdx).left, 0)
-            }
         }
     }
 
@@ -296,24 +356,16 @@ class EditorActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity     = Gravity.CENTER_VERTICAL
             setPadding(dp(12), 0, dp(4), 0)
-            setBackgroundColor(
-                if (active) Color.parseColor("#1A1A1D") else Color.parseColor("#101012")
-            )
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
+            setBackgroundColor(if (active) Color.parseColor("#1A1A1D") else Color.parseColor("#101012"))
+            layoutParams = LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT)
         }
         chip.addView(TextView(this).apply {
-            text      = if (tab.modified) "${tab.name} ●" else tab.name
-            textSize  = 12f; maxLines = 1
-            maxWidth  = dp(130)
-            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-            setTextColor(if (active) Color.WHITE else Color.parseColor("#666672"))
-            setPadding(0, 0, dp(4), 0)
+            text     = if (tab.modified) "${tab.name} ●" else tab.name
+            textSize = 12f; maxLines = 1
+            setTextColor(if (active) Color.parseColor("#EEEEF2") else Color.parseColor("#666672"))
         })
         chip.addView(TextView(this).apply {
-            text     = "×"; textSize = 15f
+            text      = "×"; textSize = 15f
             setPadding(dp(6), dp(2), dp(8), dp(2))
             setTextColor(if (active) Color.parseColor("#888892") else Color.parseColor("#444450"))
             setOnClickListener { closeTab(idx) }
@@ -324,15 +376,15 @@ class EditorActivity : Activity() {
 
     // ─── Symbol toolbar ───────────────────────────────────────────────────
     private fun setupToolbar() {
-        findViewById<View>(R.id.btnUndo).setOnClickListener { performUndo() }
-        findViewById<View>(R.id.btnRedo).setOnClickListener { performRedo() }
+        findViewById<View>(R.id.btnUndo).setOnClickListener { editor.undo() }
+        findViewById<View>(R.id.btnRedo).setOnClickListener { editor.redo() }
         findViewById<View>(R.id.btnFind).setOnClickListener { showFindReplace() }
         findViewById<View>(R.id.btnSave).setOnClickListener { saveActiveTab() }
         findViewById<View>(R.id.btnEsc).setOnClickListener  { hideKeyboard() }
         findViewById<View>(R.id.btnTab).setOnClickListener  { insertText("    ") }
+        findViewById<View>(R.id.btnRun).setOnClickListener  { showPreview() }
 
         val symbolRow = findViewById<LinearLayout>(R.id.symbolKeysRow)
-
         val symbols = listOf(
             "{", "}", "(", ")", "[", "]",
             ";", ":", "\"", "'", "/", "\\",
@@ -346,24 +398,25 @@ class EditorActivity : Activity() {
                 typeface  = Typeface.MONOSPACE; gravity = Gravity.CENTER
                 setTextColor(Color.parseColor("#C8C8D0"))
                 setBackgroundColor(Color.parseColor("#1A1A1D"))
-                layoutParams = LinearLayout.LayoutParams(dp(36), ViewGroup.LayoutParams.MATCH_PARENT)
+                layoutParams = LinearLayout.LayoutParams(dp(36), MATCH_PARENT)
                     .also { it.leftMargin = dp(1) }
                 setOnClickListener { insertText(sym) }
             })
         }
-
         listOf("←" to false, "→" to true).forEach { (label, isRight) ->
             symbolRow.addView(TextView(this).apply {
-                text      = label; textSize = 14f; gravity = Gravity.CENTER
+                text     = label; textSize = 14f; gravity = Gravity.CENTER
                 setTextColor(Color.parseColor("#D4D4DC"))
                 setBackgroundColor(Color.parseColor("#252528"))
-                layoutParams = LinearLayout.LayoutParams(dp(40), ViewGroup.LayoutParams.MATCH_PARENT)
+                layoutParams = LinearLayout.LayoutParams(dp(40), MATCH_PARENT)
                     .also { it.leftMargin = dp(2) }
                 setOnClickListener {
                     try {
-                        val sel = editor.selectionStart
-                        if (isRight) editor.setSelection((sel + 1).coerceAtMost(editor.text.length))
-                        else         editor.setSelection((sel - 1).coerceAtLeast(0))
+                        val pos = editorCursorPos()
+                        val len = editor.text.length
+                        val next = if (isRight) (pos + 1).coerceAtMost(len)
+                                   else         (pos - 1).coerceAtLeast(0)
+                        editorSetSel(next)
                     } catch (_: Exception) {}
                 }
             })
@@ -371,32 +424,7 @@ class EditorActivity : Activity() {
     }
 
     private fun insertText(s: String) {
-        try {
-            val start = editor.selectionStart.coerceAtLeast(0)
-            val end   = editor.selectionEnd.coerceAtLeast(start)
-            editor.text.replace(start, end, s)
-            editor.setSelection(start + s.length)
-        } catch (_: Exception) {}
-    }
-
-    private fun performUndo() {
-        if (activeIdx < 0) return
-        val tab = tabs[activeIdx]
-        if (tab.undoStack.isNotEmpty()) {
-            tab.redoStack.add(editor.text.toString())
-            val prev = tab.undoStack.removeAt(tab.undoStack.size - 1)
-            skipUndo = true; editor.setText(prev); skipUndo = false
-        }
-    }
-
-    private fun performRedo() {
-        if (activeIdx < 0) return
-        val tab = tabs[activeIdx]
-        if (tab.redoStack.isNotEmpty()) {
-            tab.undoStack.add(editor.text.toString())
-            val next = tab.redoStack.removeAt(tab.redoStack.size - 1)
-            skipUndo = true; editor.setText(next); skipUndo = false
-        }
+        try { editor.commitText(s, true) } catch (_: Exception) {}
     }
 
     private fun saveActiveTab() {
@@ -404,11 +432,10 @@ class EditorActivity : Activity() {
         if (idx < 0 || idx >= tabs.size) { toast("No file open"); return }
         val tab = tabs[idx]
         try {
-            contentResolver.openOutputStream(tab.uri, "wt")?.bufferedWriter()?.use {
-                it.write(editor.text.toString())
-            }
+            val txt = editor.text.toString()
+            contentResolver.openOutputStream(tab.uri, "wt")?.bufferedWriter()?.use { it.write(txt) }
             tab.modified = false
-            tab.content  = editor.text.toString()
+            tab.content  = txt
             updateTabLabel(idx)
             toast("Saved")
         } catch (_: Exception) { toast("Save failed") }
@@ -432,9 +459,8 @@ class EditorActivity : Activity() {
             setHintTextColor(Color.parseColor("#444450"))
             setBackgroundColor(Color.parseColor("#242428"))
             setPadding(dp(10), dp(8), dp(10), dp(8))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).also { it.bottomMargin = dp(8) }
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+                .also { it.bottomMargin = dp(8) }
         }
         val etQuery   = et("Find in file...")
         val etReplace = et("Replace with...")
@@ -448,17 +474,15 @@ class EditorActivity : Activity() {
                 val q = etQuery.text.toString()
                 if (q.isEmpty()) return@setPositiveButton
                 val txt  = editor.text.toString()
-                val from = if (editor.selectionEnd < txt.length) editor.selectionEnd else 0
+                val from = editorCursorPos().let { if (it < txt.length) it else 0 }
                 val idx  = txt.indexOf(q, from).let { if (it < 0) txt.indexOf(q, 0) else it }
-                if (idx >= 0) { editor.setSelection(idx, idx + q.length); editor.requestFocus() }
+                if (idx >= 0) { editorSetSel(idx, idx + q.length); editor.requestFocus() }
                 else toast("Not found")
             }
             .setNeutralButton("Replace All") { _, _ ->
                 val q = etQuery.text.toString()
                 val r = etReplace.text.toString()
                 if (q.isEmpty()) return@setNeutralButton
-                // FIX: skipUndo must be false so the text watcher records this as
-                // a single undoable operation (beforeTextChanged captures old state).
                 editor.setText(editor.text.toString().replace(q, r))
                 toast("Replaced")
             }
@@ -468,7 +492,7 @@ class EditorActivity : Activity() {
 
     // ─── Left panel switcher ──────────────────────────────────────────────
     private fun setupLeftSidebarSwitch() {
-        iconExplorer.setOnClickListener { showPanel(explorer = true)  }
+        iconExplorer.setOnClickListener { showPanel(explorer = true) }
         iconSearch.setOnClickListener   { showPanel(explorer = false) }
         showPanel(explorer = true)
     }
@@ -517,7 +541,6 @@ class EditorActivity : Activity() {
             val fUri = folderUri ?: return
             tvStatus.text = "Searching..."; tvStatus.visibility = View.VISIBLE
             adapter.setItems(emptyList())
-
             searchExecutor.execute {
                 val results = mutableListOf<SearchResultItem>()
                 try {
@@ -530,19 +553,18 @@ class EditorActivity : Activity() {
                 }
             }
         }
-
         btnGo.setOnClickListener { doSearch() }
         etQuery.setOnEditorActionListener { _, _, _ -> doSearch(); true }
     }
 
     private fun walkAndSearch(
-        dir: DocumentFile, q: String,
-        cs: Boolean, whole: Boolean,
+        dir: DocumentFile, q: String, cs: Boolean, whole: Boolean,
         out: MutableList<SearchResultItem>
     ) {
         val textExts = setOf(
             "kt","java","xml","json","gradle","md","txt","properties",
-            "kts","html","css","js","py","cpp","h","c","ts","go","rb"
+            "kts","html","css","js","py","cpp","h","c","ts","go","rb",
+            "jsx","tsx","vue","php","swift","rs","dart","sh","yaml","toml"
         )
         for (f in dir.listFiles()) {
             if (f.isDirectory) { walkAndSearch(f, q, cs, whole, out); continue }
@@ -566,16 +588,96 @@ class EditorActivity : Activity() {
 
     private fun jumpToLine(lineNumber: Int, query: String) {
         try {
-            val txt   = editor.text.toString()
-            val lines = txt.split('\n')
-            var offset = 0
-            for (i in 0 until (lineNumber - 1).coerceAtMost(lines.size))
-                offset += lines[i].length + 1
-            val idx = txt.lowercase().indexOf(query.lowercase(), offset)
-            if (idx >= 0) editor.setSelection(idx, idx + query.length)
-            else          editor.setSelection(offset.coerceAtMost(txt.length))
+            val line = (lineNumber - 1).coerceAtLeast(0)
+            val col  = if (query.isNotEmpty()) {
+                editor.text.toString().lines().getOrNull(line)
+                    ?.lowercase()?.indexOf(query.lowercase())?.coerceAtLeast(0) ?: 0
+            } else 0
+            editor.setSelection(line, col)
             editor.requestFocus()
         } catch (_: Exception) {}
+    }
+
+    // ─── HTTP preview server ──────────────────────────────────────────────
+    private fun showPreview() {
+        val folder = folderUri?.let { DocumentFile.fromTreeUri(this, it) }
+        if (folder == null) { toast("Open a project folder first"); return }
+
+        if (localServer == null || !localServer!!.isAlive) {
+            localServer?.stop()
+            localServer = LocalServer(folder, this)
+            try {
+                localServer!!.start()
+            } catch (e: Exception) {
+                toast("Server error: ${e.message}")
+                return
+            }
+        }
+
+        val fileName = if (activeIdx >= 0) tabs[activeIdx].name else ""
+        val url = if (fileName.endsWith(".html", ignoreCase = true))
+            "http://localhost:${LocalServer.PORT}/$fileName"
+        else
+            "http://localhost:${LocalServer.PORT}/index.html"
+
+        showWebViewSheet(url)
+    }
+
+    private fun showWebViewSheet(url: String) {
+        val dialog = Dialog(this)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#0F0F11"))
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(Color.parseColor("#141416"))
+            setPadding(dp(12), 0, dp(4), 0)
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(44))
+        }
+        header.addView(TextView(this).apply {
+            text     = url.replace("http://localhost:${LocalServer.PORT}", "")
+            textSize = 11f
+            setTextColor(Color.parseColor("#808088"))
+            typeface = Typeface.MONOSPACE
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+        })
+        val refreshBtn = TextView(this).apply {
+            text = "↻"; textSize = 20f; gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#909098"))
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+        }
+        val closeBtn = TextView(this).apply {
+            text = "✕"; textSize = 16f; gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#909098"))
+            setPadding(dp(10), dp(10), dp(14), dp(10))
+            setOnClickListener { dialog.dismiss() }
+        }
+        header.addView(refreshBtn)
+        header.addView(closeBtn)
+
+        val webView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess   = true
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
+        }
+        refreshBtn.setOnClickListener { webView.reload() }
+
+        root.addView(header)
+        root.addView(webView)
+
+        dialog.setContentView(root)
+        dialog.window?.apply {
+            setLayout(MATCH_PARENT, MATCH_PARENT)
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
+        dialog.show()
+        webView.loadUrl(url)
     }
 
     // ─── Agent chat ───────────────────────────────────────────────────────
@@ -591,14 +693,12 @@ class EditorActivity : Activity() {
             "• Plan and execute multi-step coding tasks\n" +
             "• Write/fix multiple files in one response\n" +
             "• Proactively fix bugs I notice\n\n" +
-            "Changes are shown as diffs for your review.", false
+            "Tap ▶ in the toolbar to preview HTML files.", false
         ))
         chatAdapter.notifyDataSetChanged()
 
         val btnSend = findViewById<View>(R.id.btnChatSend)
-
         btnSend.setOnClickListener { sendChatMessage() }
-
         btnSend.setOnLongClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Clear conversation?")
@@ -681,9 +781,8 @@ class EditorActivity : Activity() {
             setPadding(dp(24), dp(20), dp(24), dp(20))
             setBackgroundColor(Color.parseColor("#1A1A1D"))
         }
-        val itemLp = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(10) }
+        val itemLp = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+            .apply { bottomMargin = dp(10) }
 
         fun label(t: String) = TextView(this).apply {
             text = t; setTextColor(Color.parseColor("#909098"))
@@ -717,9 +816,8 @@ class EditorActivity : Activity() {
         root.addView(Button(this).apply {
             text = "SAVE"
             setBackgroundColor(Color.parseColor("#E52A3F")); setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8); bottomMargin = dp(16) }
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+                .apply { topMargin = dp(8); bottomMargin = dp(16) }
             setOnClickListener {
                 sp.edit()
                     .putString("agent_url",   etUrl.text.toString())
@@ -752,10 +850,7 @@ class EditorActivity : Activity() {
 
         val sv = ScrollView(this).apply { addView(root) }
         dialog.setContentView(sv)
-        dialog.window?.setLayout(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            (resources.displayMetrics.heightPixels * 0.75f).toInt()
-        )
+        dialog.window?.setLayout(MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.75f).toInt())
         dialog.window?.setGravity(Gravity.BOTTOM)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.show()
@@ -772,7 +867,7 @@ class EditorActivity : Activity() {
         }
         hdr.addView(TextView(this).apply {
             text = name; setTextColor(Color.WHITE); textSize = 13f
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         })
         hdr.addView(TextView(this).apply {
             text = "  ×  "; setTextColor(Color.parseColor("#909098"))
@@ -788,15 +883,11 @@ class EditorActivity : Activity() {
         })
         root.addView(sv)
         dialog.setContentView(root)
-        dialog.window?.setLayout(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            (resources.displayMetrics.heightPixels * 0.85f).toInt()
-        )
+        dialog.window?.setLayout(MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.85f).toInt())
         dialog.window?.setGravity(Gravity.BOTTOM)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.show()
     }
-
 
     // ─── Back press ───────────────────────────────────────────────────────
     override fun onBackPressed() {
@@ -840,9 +931,7 @@ class SearchResultAdapter(
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(10.dp(), 8.dp(), 10.dp(), 8.dp())
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+            layoutParams = ViewGroup.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
         }
         val tvFile = TextView(ctx).apply {
             textSize = 11f; setTextColor(Color.parseColor("#E52A3F"))
@@ -851,9 +940,8 @@ class SearchResultAdapter(
         val tvLine = TextView(ctx).apply {
             textSize = 12f; setTextColor(Color.parseColor("#909098"))
             typeface = Typeface.MONOSPACE; maxLines = 2
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).also { it.topMargin = 2.dp() }
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+                .also { it.topMargin = 2.dp() }
         }
         row.addView(tvFile); row.addView(tvLine)
         return VH(row, tvFile, tvLine)

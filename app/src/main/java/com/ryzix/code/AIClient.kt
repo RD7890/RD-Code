@@ -191,13 +191,20 @@ class AIClient(private val context: Context) {
                 bPos = ri + R_MARK.length
             }
 
+            // ALWAYS strip the raw protocol block — never let it leak as visible text.
+            val fullBlock = result.substring(blockStart, blockEnd + END.length)
             if (filename.isNotEmpty() && patchApplied && newContent != oldContent) {
                 changes.add(PendingChange(filename, oldContent, newContent, existingUri))
-                val fullBlock = result.substring(blockStart, blockEnd + END.length)
-                result = result.replace(fullBlock, "[Edit queued: $filename]")
+                result = result.replace(fullBlock, "")
                 pos = blockStart
             } else {
-                pos = blockEnd + END.length
+                val reason = when {
+                    !patchApplied           -> "search text not found"
+                    newContent == oldContent -> "no changes"
+                    else                    -> "empty filename"
+                }
+                result = result.replace(fullBlock, "\n[⚠ Edit skipped ($reason): $filename]\n")
+                pos = blockStart
             }
         }
         return result to changes
@@ -357,33 +364,36 @@ class AIClient(private val context: Context) {
             "4. End every response with a short summary: what changed and why.\n" +
             "5. If a task is ambiguous, make a decision and proceed — explain it in the summary.\n\n" +
             "═══ FILE OPERATIONS ═══\n\n" +
-            "▶ EDITING an existing file — use FILE_EDIT (targeted diff, preferred):\n" +
+            "▶ EDITING an existing file — use FILE_EDIT (REQUIRED for any existing file):\n" +
             "  FILE_EDIT:path/to/file.kt\n" +
             "  <<<<<<< SEARCH\n" +
-            "  exact existing lines to replace (copy verbatim, include 3-5 lines of context)\n" +
+            "  exact existing lines to replace — copy character-for-character from the file\n" +
             "  =======\n" +
             "  new replacement lines\n" +
             "  >>>>>>> REPLACE\n" +
             "  FILE_END\n\n" +
-            "  • You can stack multiple SEARCH/REPLACE pairs inside one FILE_EDIT block.\n" +
-            "  • The SEARCH text must match the file exactly (whitespace, indentation included).\n" +
-            "  • Include enough context (3-5 surrounding lines) so the SEARCH block is unique.\n" +
-            "  • Empty SEARCH = prepend replacement to the top of the file.\n\n" +
-            "▶ CREATING a new file — use FILE_WRITE:\n" +
+            "  RULES FOR FILE_EDIT (failure to follow = edit silently skipped):\n" +
+            "  • SEARCH text must be an EXACT copy from the file: same whitespace, same indentation.\n" +
+            "  • Include 3-5 lines of context so the SEARCH block is unique in the file.\n" +
+            "  • Stack multiple SEARCH/REPLACE pairs inside one FILE_EDIT block.\n" +
+            "  • Empty SEARCH = prepend the REPLACE text to the top of the file.\n" +
+            "  • DO NOT rewrite the entire file via FILE_EDIT — only change what needs changing.\n\n" +
+            "▶ CREATING a new file (NEW files only) — use FILE_WRITE:\n" +
             "  FILE_WRITE:path/to/newfile.ext\n" +
             "  <complete file content>\n" +
             "  FILE_END\n\n" +
-            "  • Use FILE_WRITE ONLY for new files or when a complete rewrite is needed.\n" +
-            "  • For subdirectory paths write the full path: src/main/java/com/example/Foo.kt\n\n" +
+            "  ⛔ FILE_WRITE on an existing file OVERWRITES it completely — use only for NEW files.\n" +
+            "  ⛔ NEVER use FILE_WRITE to edit existing files. Use FILE_EDIT instead.\n\n" +
             "▶ SAVING agent notes (NOT project files):\n" +
             "  FILE_CREATE:notename.md\n" +
             "  <content>\n" +
             "  FILE_END\n\n" +
-            "⚠ CRITICAL RULES — violating these breaks file creation:\n" +
+            "⚠ CRITICAL RULES:\n" +
             "  - NEVER wrap FILE_WRITE or FILE_EDIT blocks inside markdown code fences (``` or ~~~).\n" +
             "  - Every block MUST end with FILE_END on its own line.\n" +
-            "  - Never truncate file content with '...' or comments like '// rest unchanged'.\n" +
-            "  - The user sees a diff dialog (ACCEPT / REJECT) for every change before it is written.\n\n" +
+            "  - Never truncate file content with '...' or '// rest unchanged' — always complete.\n" +
+            "  - If a FILE_EDIT SEARCH fails (text not found), you will see [⚠ Edit skipped]. Fix by\n" +
+            "    re-reading the file and using exact text from the current file content shown below.\n\n" +
             "═══ CODING STANDARDS ═══\n" +
             "- Write clean, idiomatic code matching the project's existing style.\n" +
             "- This is an Android/Kotlin project — follow Android best practices.\n" +

@@ -218,13 +218,19 @@ class FileTreeAdapter(
     // ── File icons ────────────────────────────────────────────────────────
 
     private fun fileIconRes(name: String) = when (name.substringAfterLast('.', "").lowercase()) {
-        "kt", "kts" -> R.drawable.ic_file_kt
-        "java"      -> R.drawable.ic_file_java
-        "xml"       -> R.drawable.ic_file_xml
-        "json"      -> R.drawable.ic_file_json
-        "gradle"    -> R.drawable.ic_file_gradle
-        "md", "txt" -> R.drawable.ic_file_md
-        else        -> R.drawable.ic_file_default
+        "kt", "kts"        -> R.drawable.ic_file_kt
+        "java"             -> R.drawable.ic_file_java
+        "xml"              -> R.drawable.ic_file_xml
+        "json"             -> R.drawable.ic_file_json
+        "gradle"           -> R.drawable.ic_file_gradle
+        "md"               -> R.drawable.ic_file_md
+        "txt"              -> R.drawable.ic_file_txt
+        "html", "htm"      -> R.drawable.ic_file_html
+        "css"              -> R.drawable.ic_file_css
+        "js", "mjs", "jsx" -> R.drawable.ic_file_js
+        "ts", "tsx"        -> R.drawable.ic_file_ts
+        "py"               -> R.drawable.ic_file_py
+        else               -> R.drawable.ic_file_default
     }
 
     // ── Context menu ─────────────────────────────────────────────────────

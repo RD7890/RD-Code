@@ -4,19 +4,16 @@ plugins {
 }
 
 android {
-    compileSdk 31
+    compileSdk 33
 
     defaultConfig {
         applicationId "com.ryzix.code"
         minSdk 26
-        targetSdk 31
-        versionCode 9
-        versionName "9.0.0"
+        targetSdk 33
+        versionCode  (project.findProperty('versionCode')  ?: '9').toString().toInteger()
+        versionName   project.findProperty('versionName')  ?: '9.0.0'
     }
 
-    // Permanent signing config — same key used for every build (CI and local).
-    // Credentials come from environment variables injected by the CI workflow.
-    // For local builds, set these in your shell or local.properties (never commit real values).
     signingConfigs {
         release {
             storeFile     file(System.getenv("SIGNING_STORE_FILE") ?: "signing/ryzix.p12")
@@ -33,9 +30,6 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            // Use the same permanent key for debug installs too — prevents
-            // "INSTALL_FAILED_UPDATE_INCOMPATIBLE" when switching between
-            // CI-built and locally-built APKs.
             signingConfig signingConfigs.release
             minifyEnabled false
         }
@@ -49,13 +43,28 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    packagingOptions {
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.txt'
+    }
 }
 
 dependencies {
-    // Libraries listed here mirror app/libraries.json for CI/Gradle builds.
-    // CodeAssist (Tyron IDE) reads libraries.json; standard Gradle reads this block.
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.5.21"
-    implementation "androidx.appcompat:appcompat:1.3.1"
-    implementation "com.google.android.material:material:1.4.0"
-    implementation "androidx.constraintlayout:constraintlayout:2.1.0"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.8.22"
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    implementation "com.google.android.material:material:1.9.0"
+    implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+    implementation "androidx.documentfile:documentfile:1.0.1"
+    implementation "androidx.drawerlayout:drawerlayout:1.2.0"
+    implementation "androidx.recyclerview:recyclerview:1.3.1"
+
+    // Sora code editor — proper syntax-highlighted code editing
+    implementation "io.github.rosemoe.sora-editor:editor:0.21.1"
+
+    // NanoHTTPD — lightweight HTTP server for HTML preview
+    implementation "org.nanohttpd:nanohttpd:2.3.1"
 }
