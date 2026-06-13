@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="bg_app">#0F0F11</color>
+    <color name="bg_panel">#1A1A1D</color>
+    <color name="bg_card">#161618</color>
+    <color name="bg_input">#242428</color>
+    <color name="accent">#E52A3F</color>
+    <color name="text_main">#EEEEF2</color>
+    <color name="text_muted">#80808A</color>
+    <color name="divider">#2A2A2F</color>
+</resources>

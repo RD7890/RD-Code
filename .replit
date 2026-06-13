@@ -1,0 +1,28 @@
+[agent]
+expertMode = true
+
+[nix]
+packages = ["unzipNLS"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Project Info"
+
+[[workflows.workflow]]
+name = "Project Info"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "echo 'Ryzix Code v8.0 — Android Source Project. Build with: bash gradlew assembleDebug' && find . -name '*.kt' | grep -v build | sort"
+
+[workflows.workflow.metadata]
+outputType = "console"

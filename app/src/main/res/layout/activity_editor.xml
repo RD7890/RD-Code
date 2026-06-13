@@ -1,0 +1,453 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.drawerlayout.widget.DrawerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0F0F11">
+
+    <!-- ══════════════════════════════════════════════ MAIN CONTENT -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- Top bar: [☰] [tabs...] [1:1] [✦] -->
+        <LinearLayout
+            android:id="@+id/topBar"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#141416"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingLeft="2dp"
+            android:paddingRight="2dp"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <ImageView
+                android:id="@+id/btnMenu"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="10dp"
+                android:src="@drawable/ic_menu"
+                android:background="@android:color/transparent"
+                android:contentDescription="Menu"/>
+
+            <HorizontalScrollView
+                android:id="@+id/tabsScroll"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:scrollbars="none"
+                android:background="@android:color/transparent">
+                <LinearLayout
+                    android:id="@+id/tabsContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal"/>
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/tvLineCol"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1:1"
+                android:textColor="#404048"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp"/>
+
+            <ImageView
+                android:id="@+id/btnAgent"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="9dp"
+                android:src="@drawable/ic_sparkle"
+                android:background="@android:color/transparent"
+                android:contentDescription="AI Agent"/>
+        </LinearLayout>
+
+        <View android:id="@+id/topDiv"
+            android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#1E1E22"
+            app:layout_constraintTop_toBottomOf="@id/topBar"/>
+
+        <!-- Code editor -->
+        <ScrollView
+            android:id="@+id/editorScroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:background="#0F0F11"
+            app:layout_constraintTop_toBottomOf="@id/topDiv"
+            app:layout_constraintBottom_toTopOf="@id/symbolKeysScroll">
+            <EditText
+                android:id="@+id/editor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#0F0F11"
+                android:fontFamily="monospace"
+                android:gravity="top|start"
+                android:hint="Open a file to edit..."
+                android:inputType="textMultiLine|textNoSuggestions"
+                android:paddingLeft="14dp"
+                android:paddingRight="14dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="40dp"
+                android:textColor="#D4D4D4"
+                android:textColorHint="#252530"
+                android:textSize="13sp"/>
+        </ScrollView>
+
+        <!-- Symbol key row -->
+        <HorizontalScrollView
+            android:id="@+id/symbolKeysScroll"
+            android:layout_width="match_parent"
+            android:layout_height="38dp"
+            android:background="#0A0A0C"
+            android:scrollbars="none"
+            app:layout_constraintBottom_toTopOf="@id/bottomDiv">
+            <LinearLayout
+                android:id="@+id/symbolKeysRow"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:paddingLeft="2dp"
+                android:paddingRight="2dp"
+                android:gravity="center_vertical"/>
+        </HorizontalScrollView>
+
+        <View android:id="@+id/bottomDiv"
+            android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#1E1E22"
+            app:layout_constraintBottom_toTopOf="@id/bottomToolbar"/>
+
+        <!-- Bottom icon toolbar -->
+        <HorizontalScrollView
+            android:id="@+id/bottomToolbar"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="#141416"
+            android:scrollbars="none"
+            app:layout_constraintBottom_toBottomOf="parent">
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:paddingLeft="4dp"
+                android:paddingRight="4dp">
+
+                <ImageButton android:id="@+id/btnTab"
+                    android:layout_width="42dp" android:layout_height="36dp"
+                    android:src="@drawable/ic_tab" android:padding="9dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Tab"/>
+
+                <ImageButton android:id="@+id/btnUndo"
+                    android:layout_width="42dp" android:layout_height="36dp"
+                    android:src="@drawable/ic_undo" android:padding="9dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Undo"/>
+
+                <ImageButton android:id="@+id/btnRedo"
+                    android:layout_width="42dp" android:layout_height="36dp"
+                    android:src="@drawable/ic_redo" android:padding="9dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Redo"/>
+
+                <View android:layout_width="1dp" android:layout_height="22dp"
+                    android:background="#252529"
+                    android:layout_marginLeft="4dp" android:layout_marginRight="4dp"/>
+
+                <ImageButton android:id="@+id/btnFind"
+                    android:layout_width="42dp" android:layout_height="36dp"
+                    android:src="@drawable/ic_search" android:padding="9dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Find"/>
+
+                <ImageButton android:id="@+id/btnSave"
+                    android:layout_width="42dp" android:layout_height="36dp"
+                    android:src="@drawable/ic_save" android:padding="9dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Save"/>
+
+                <ImageButton android:id="@+id/btnEsc"
+                    android:layout_width="42dp" android:layout_height="36dp"
+                    android:src="@drawable/ic_keyboard_hide" android:padding="9dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Hide keyboard"/>
+            </LinearLayout>
+        </HorizontalScrollView>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- ══════════════════════════════════════════════ LEFT DRAWER -->
+    <LinearLayout
+        android:layout_width="296dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="#0F0F11"
+        android:orientation="horizontal">
+
+        <!-- Icon rail -->
+        <LinearLayout
+            android:layout_width="46dp"
+            android:layout_height="match_parent"
+            android:background="#0A0A0C"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <ImageView
+                android:id="@+id/iconExplorer"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:padding="8dp"
+                android:src="@drawable/ic_explorer"
+                android:alpha="1.0"
+                android:layout_marginBottom="2dp"
+                android:contentDescription="Explorer"/>
+
+            <ImageView
+                android:id="@+id/iconSearch"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:padding="8dp"
+                android:src="@drawable/ic_search"
+                android:alpha="0.4"
+                android:contentDescription="Search"/>
+
+            <Space android:layout_width="match_parent"
+                android:layout_height="0dp" android:layout_weight="1"/>
+
+            <ImageView
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:padding="8dp"
+                android:src="@drawable/ic_settings"
+                android:alpha="0.5"
+                android:contentDescription="Settings"/>
+        </LinearLayout>
+
+        <View android:layout_width="1dp" android:layout_height="match_parent"
+            android:background="#1E1E22"/>
+
+        <!-- FrameLayout: Explorer and Search panels share the same space -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <!-- Panel A: Explorer (file tree) -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/panelExplorer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:padding="4dp"
+                android:clipToPadding="false"
+                android:visibility="visible"/>
+
+            <!-- Panel B: Search in files -->
+            <LinearLayout
+                android:id="@+id/panelSearch"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingTop="8dp">
+
+                <!-- Query + Go button -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingLeft="8dp"
+                    android:paddingRight="8dp"
+                    android:paddingBottom="6dp"
+                    android:gravity="center_vertical">
+
+                    <EditText
+                        android:id="@+id/etSearchQuery"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:background="#1A1A1D"
+                        android:hint="Search files..."
+                        android:textColor="#D4D4D4"
+                        android:textColorHint="#2E2E36"
+                        android:textSize="12sp"
+                        android:paddingLeft="10dp"
+                        android:paddingRight="10dp"
+                        android:inputType="text"
+                        android:imeOptions="actionSearch"
+                        android:singleLine="true"/>
+
+                    <TextView
+                        android:id="@+id/btnSearchGo"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:text="↵"
+                        android:textSize="17sp"
+                        android:textColor="#E52A3F"
+                        android:gravity="center"
+                        android:layout_marginLeft="6dp"
+                        android:background="#1A1A1D"/>
+                </LinearLayout>
+
+                <!-- Chips: Aa | [w] -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingLeft="8dp"
+                    android:paddingRight="8dp"
+                    android:paddingBottom="8dp">
+
+                    <TextView
+                        android:id="@+id/cbCaseSensitive"
+                        android:layout_width="wrap_content"
+                        android:layout_height="26dp"
+                        android:text="Aa"
+                        android:textSize="11sp"
+                        android:textColor="#505058"
+                        android:gravity="center"
+                        android:paddingLeft="10dp"
+                        android:paddingRight="10dp"
+                        android:background="#1A1A1D"
+                        android:layout_marginRight="6dp"/>
+
+                    <TextView
+                        android:id="@+id/cbWholeWord"
+                        android:layout_width="wrap_content"
+                        android:layout_height="26dp"
+                        android:text="[w]"
+                        android:textSize="11sp"
+                        android:textColor="#505058"
+                        android:gravity="center"
+                        android:paddingLeft="10dp"
+                        android:paddingRight="10dp"
+                        android:background="#1A1A1D"/>
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="#1E1E22"/>
+
+                <!-- Status text -->
+                <TextView
+                    android:id="@+id/tvSearchStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="10sp"
+                    android:textColor="#404048"
+                    android:paddingLeft="10dp"
+                    android:paddingRight="10dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="4dp"
+                    android:visibility="gone"/>
+
+                <!-- Results list -->
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvSearchResults"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:padding="4dp"
+                    android:clipToPadding="false"/>
+            </LinearLayout>
+
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- ══════════════════════════════════════════════ RIGHT DRAWER: Agent -->
+    <LinearLayout
+        android:layout_width="316dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:background="#141416"
+        android:orientation="vertical">
+
+        <!-- Agent header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingLeft="12dp"
+            android:paddingRight="8dp">
+
+            <ImageView android:layout_width="18dp" android:layout_height="18dp"
+                android:src="@drawable/ic_sparkle" android:contentDescription="Agent"/>
+
+            <TextView
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginLeft="8dp"
+                android:text="RD Agent"
+                android:textColor="#E52A3F"
+                android:textSize="14sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/btnOpenStudio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Studio"
+                android:textSize="10sp"
+                android:textColor="#D4A020"
+                android:background="#1E1600"
+                android:paddingLeft="8dp" android:paddingRight="8dp"
+                android:paddingTop="4dp" android:paddingBottom="4dp"
+                android:layout_marginRight="4dp"/>
+
+            <ImageView
+                android:id="@+id/btnAgentSettings"
+                android:layout_width="34dp" android:layout_height="34dp"
+                android:padding="7dp"
+                android:src="@drawable/ic_settings"
+                android:background="@android:color/transparent"
+                android:contentDescription="Settings"/>
+        </LinearLayout>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#1E1E22"/>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerChat"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:padding="10dp"
+            android:clipToPadding="false"/>
+
+        <!-- Chat input row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#1A1A1D"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="8dp">
+
+            <EditText
+                android:id="@+id/etChatInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="#242428"
+                android:hint="Message agent..."
+                android:maxLines="4"
+                android:padding="10dp"
+                android:textColor="#EEEEF2"
+                android:textColorHint="#2E2E36"
+                android:textSize="13sp"/>
+
+            <ImageView
+                android:id="@+id/btnChatSend"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginLeft="8dp"
+                android:background="#E52A3F"
+                android:padding="10dp"
+                android:src="@drawable/ic_send"
+                android:contentDescription="Send"/>
+        </LinearLayout>
+    </LinearLayout>
+
+</androidx.drawerlayout.widget.DrawerLayout>
