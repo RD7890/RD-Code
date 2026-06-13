@@ -3,9 +3,8 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <rect android:fillColor="#3178C6"
-        android:width="18" android:height="18"
-        android:x="3" android:y="3"/>
+    <path android:fillColor="#3178C6"
+        android:pathData="M3,3 H21 V21 H3 Z"/>
     <path android:fillColor="#FFFFFF"
         android:pathData="M7,11.5 L7,10 L13,10 L13,11.5 L11,11.5 L11,18.5 L9,18.5 L9,11.5 Z"/>
     <path android:fillColor="#FFFFFF"
