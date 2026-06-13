@@ -178,26 +178,25 @@ class EditorActivity : Activity() {
 
     // ─── Sora editor setup ────────────────────────────────────────────────
     private fun setupEditor() {
-        try { editor.typefaceText = Typeface.MONOSPACE } catch (_: Exception) {}
+        editor.setTypefaceText(Typeface.MONOSPACE)
         editor.setTextSize(13f)
-        try { editor.wordwrap = false } catch (_: Exception) {}
+        editor.setWordwrap(false)
 
-        try {
-            val scheme = EditorColorScheme()
-            scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,        Color.parseColor("#0F0F11"))
-            scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND,   Color.parseColor("#0A0A0C"))
-            scheme.setColor(EditorColorScheme.LINE_NUMBER,              Color.parseColor("#3A3A44"))
-            scheme.setColor(EditorColorScheme.CURRENT_LINE,             Color.parseColor("#151518"))
-            scheme.setColor(EditorColorScheme.TEXT_NORMAL,              Color.parseColor("#D4D4D4"))
-            scheme.setColor(EditorColorScheme.KEYWORD,                  Color.parseColor("#569CD6"))
-            scheme.setColor(EditorColorScheme.STRING,                   Color.parseColor("#CE9178"))
-            scheme.setColor(EditorColorScheme.COMMENT,                  Color.parseColor("#6A9955"))
-            scheme.setColor(EditorColorScheme.OPERATOR,                 Color.parseColor("#D4D4D4"))
-            scheme.setColor(EditorColorScheme.SELECTED_TEXT_BACKGROUND, Color.parseColor("#264F78"))
-            scheme.setColor(EditorColorScheme.SELECTION_INSERT,         Color.parseColor("#E52A3F"))
-            scheme.setColor(EditorColorScheme.SELECTION_HANDLE,         Color.parseColor("#E52A3F"))
-            editor.colorScheme = scheme
-        } catch (_: Exception) {}
+        val scheme = EditorColorScheme()
+        scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,        Color.parseColor("#0F0F11"))
+        scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND,   Color.parseColor("#0A0A0C"))
+        scheme.setColor(EditorColorScheme.LINE_NUMBER,              Color.parseColor("#3A3A44"))
+        scheme.setColor(EditorColorScheme.CURRENT_LINE,             Color.parseColor("#151518"))
+        scheme.setColor(EditorColorScheme.TEXT_NORMAL,              Color.parseColor("#D4D4D4"))
+        scheme.setColor(EditorColorScheme.KEYWORD,                  Color.parseColor("#569CD6"))
+        scheme.setColor(EditorColorScheme.LITERAL,                  Color.parseColor("#CE9178"))
+        scheme.setColor(EditorColorScheme.COMMENT,                  Color.parseColor("#6A9955"))
+        scheme.setColor(EditorColorScheme.OPERATOR,                 Color.parseColor("#D4D4D4"))
+        scheme.setColor(EditorColorScheme.IDENTIFIER_NAME,          Color.parseColor("#DCDCAA"))
+        scheme.setColor(EditorColorScheme.SELECTED_TEXT_BACKGROUND, Color.parseColor("#264F78"))
+        scheme.setColor(EditorColorScheme.SELECTION_INSERT,         Color.parseColor("#E52A3F"))
+        scheme.setColor(EditorColorScheme.SELECTION_HANDLE,         Color.parseColor("#E52A3F"))
+        editor.setColorScheme(scheme)
 
         editor.setEditorLanguage(EmptyLanguage())
     }
