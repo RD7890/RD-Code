@@ -498,20 +498,41 @@ class AIClient(private val context: Context) {
 
     // ── Response extractors ───────────────────────────────────────────────
 
+    // Find the start of a JSON string value for a given key,
+    // tolerating optional whitespace between ':' and '"' (pretty-printed JSON).
+    private fun findStringStart(json: String, key: String, from: Int = 0): Int {
+        var pos = json.indexOf(key, from).takeIf { it >= 0 } ?: return -1
+        pos += key.length
+        // Skip optional whitespace (spaces, tabs, newlines) before the opening quote
+        while (pos < json.length && json[pos] in " \t\r\n") pos++
+        return if (pos < json.length && json[pos] == '"') pos + 1 else -1
+    }
+
     // FIX: Search for content after "assistant" role marker to avoid
     // matching "content" fields in other parts of the response JSON.
+    // Also handles pretty-printed JSON where key: "value" has a space after ':'.
     private fun extractOpenAIText(json: String): String? {
-        val assistantMarker = "\"role\":\"assistant\""
-        val searchFrom = json.indexOf(assistantMarker).let { if (it >= 0) it else 0 }
-        val key = "\"content\":\""
-        val s   = json.indexOf(key, searchFrom).takeIf { it >= 0 } ?: return null
-        return extractStr(json, s + key.length)
+        val assistantMarker = "\"role\":"
+        // find "role": "assistant" tolerating spaces
+        var search = 0
+        var assistantPos = 0
+        while (true) {
+            val p = json.indexOf(assistantMarker, search).takeIf { it >= 0 } ?: break
+            var q = p + assistantMarker.length
+            while (q < json.length && json[q] in " \t\r\n") q++
+            if (q < json.length && json[q] == '"') {
+                q++
+                if (json.startsWith("assistant", q)) { assistantPos = p; break }
+            }
+            search = p + 1
+        }
+        val s = findStringStart(json, "\"content\":", assistantPos)
+        return if (s >= 0) extractStr(json, s) else null
     }
 
     private fun extractGeminiText(json: String): String? {
-        val key = "\"text\":\""
-        val s   = json.indexOf(key).takeIf { it >= 0 } ?: return null
-        return extractStr(json, s + key.length)
+        val s = findStringStart(json, "\"text\":")
+        return if (s >= 0) extractStr(json, s) else null
     }
 
     // FIX: Properly handles all JSON escape sequences including \uXXXX unicode.
