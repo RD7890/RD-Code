@@ -302,7 +302,7 @@ class AIClient(private val context: Context) {
                 val dir     = if (parts.size > 1) ensureDirectory(folder, parts.dropLast(1))
                               else folder
                 val safeName = parts.last().replace(Regex("[*?\"<>|]"), "_")
-                val doc = dir?.createFile("text/plain", safeName)
+                val doc = dir?.createFile(mimeForFilename(safeName), safeName)
                 if (doc != null) {
                     context.contentResolver.openOutputStream(doc.uri, "wt")
                         ?.bufferedWriter()?.use { it.write(change.newContent) }
@@ -310,6 +310,22 @@ class AIClient(private val context: Context) {
                 } else false
             }
         } catch (_: Exception) { false }
+    }
+
+    private fun mimeForFilename(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            "html", "htm"   -> "text/html"
+            "css"           -> "text/css"
+            "js", "mjs"     -> "text/javascript"
+            "json"          -> "application/json"
+            "xml"           -> "text/xml"
+            "svg"           -> "image/svg+xml"
+            "md"            -> "text/markdown"
+            "ts", "tsx"     -> "text/x-typescript"
+            "jsx"           -> "text/x-jsx"
+            else            -> "application/octet-stream"
+        }
     }
 
     private fun ensureDirectory(root: DocumentFile, parts: List<String>): DocumentFile? {
