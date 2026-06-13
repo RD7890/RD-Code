@@ -84,23 +84,34 @@ class EditorActivity : Activity() {
         ai        = AIClient(this)
         ai.onPendingChange = { change, cb ->
             runOnUiThread {
-                showDiffDialog(change) { accepted ->
-                    cb(accepted)
-                    if (accepted) {
-                        if (::treeAdapter.isInitialized) treeAdapter.refresh()
-                        val openName = if (activeIdx >= 0) tabs[activeIdx].name else ""
-                        if (openName == change.filename && activeIdx >= 0) {
-                            try {
-                                val txt = contentResolver.openInputStream(tabs[activeIdx].uri)
-                                    ?.bufferedReader()?.readText() ?: return@showDiffDialog
-                                skipUndo = true; editor.setText(txt); skipUndo = false
-                                tabs[activeIdx].content  = txt
-                                tabs[activeIdx].modified = false
-                                updateTabLabel(activeIdx)
-                            } catch (_: Exception) {}
+                val diffMsg = ChatMessage(
+                    text         = "",
+                    isUser       = false,
+                    diffChange   = change,
+                    diffState    = ChatMessage.DiffState.PENDING,
+                    diffCallback = { accepted ->
+                        cb(accepted)
+                        if (accepted) {
+                            if (::treeAdapter.isInitialized) treeAdapter.refresh()
+                            val openName = if (activeIdx >= 0) tabs[activeIdx].name else ""
+                            if (openName == change.filename && activeIdx >= 0) {
+                                try {
+                                    val txt = contentResolver.openInputStream(tabs[activeIdx].uri)
+                                        ?.bufferedReader()?.readText()
+                                    if (txt != null) {
+                                        skipUndo = true; editor.setText(txt); skipUndo = false
+                                        tabs[activeIdx].content  = txt
+                                        tabs[activeIdx].modified = false
+                                        updateTabLabel(activeIdx)
+                                    }
+                                } catch (_: Exception) {}
+                            }
                         }
                     }
-                }
+                )
+                msgs.add(diffMsg)
+                chatAdapter.notifyItemInserted(msgs.size - 1)
+                rvChat.scrollToPosition(msgs.size - 1)
             }
         }
 
@@ -786,83 +797,6 @@ class EditorActivity : Activity() {
         dialog.show()
     }
 
-    // ─── Diff dialog ──────────────────────────────────────────────────────
-    private fun showDiffDialog(change: AIClient.PendingChange, callback: (Boolean) -> Unit) {
-        val dialog = Dialog(this); dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.setCancelable(false)
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#161618"))
-        }
-        val hdr = LinearLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#1A1A1D"))
-            setPadding(dp(16), dp(12), dp(16), dp(12)); gravity = Gravity.CENTER_VERTICAL
-        }
-        hdr.addView(TextView(this).apply {
-            text = change.filename; setTextColor(Color.parseColor("#EEEEF2"))
-            textSize = 13f; typeface = Typeface.MONOSPACE
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        hdr.addView(TextView(this).apply {
-            text = "Agent edit"; setTextColor(Color.parseColor("#909098")); textSize = 11f
-        })
-        root.addView(hdr)
-
-        val diffSv = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(320))
-        }
-        diffSv.addView(TextView(this).apply {
-            text = makeDiff(change.oldContent, change.newContent)
-            typeface = Typeface.MONOSPACE; textSize = 11f
-            setTextColor(Color.parseColor("#D4D4DC")); setBackgroundColor(Color.parseColor("#0F0F11"))
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-        })
-        root.addView(diffSv)
-
-        val btnRow = LinearLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#1A1A1D"))
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-        }
-        val btnLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            .apply { leftMargin = dp(6); rightMargin = dp(6) }
-
-        btnRow.addView(Button(this).apply {
-            text = "REJECT"; setTextColor(Color.parseColor("#E52A3F"))
-            setBackgroundColor(Color.parseColor("#2A1010")); layoutParams = btnLp
-            setOnClickListener { dialog.dismiss(); callback(false) }
-        })
-        btnRow.addView(Button(this).apply {
-            text = "ACCEPT"; setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#1A4A1A")); layoutParams = btnLp
-            setOnClickListener { dialog.dismiss(); callback(true) }
-        })
-        root.addView(btnRow)
-        dialog.setContentView(root)
-        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        dialog.window?.setGravity(Gravity.BOTTOM)
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        dialog.show()
-    }
-
-    private fun makeDiff(old: String, new: String): String {
-        if (old.isEmpty()) return new.lines().joinToString("\n") { "+ $it" }
-        val sb = StringBuilder()
-        val o  = old.lines(); val n = new.lines()
-        val limit = 300
-        for (i in 0 until maxOf(o.size, n.size).coerceAtMost(limit)) {
-            val ol = if (i < o.size) o[i] else null
-            val nl = if (i < n.size) n[i] else null
-            when {
-                ol == null -> sb.append("+ $nl\n")
-                nl == null -> sb.append("- $ol\n")
-                ol != nl   -> sb.append("- $ol\n+ $nl\n")
-                else       -> sb.append("  $ol\n")
-            }
-        }
-        val totalLines = maxOf(o.size, n.size)
-        if (totalLines > limit) sb.append("... (${totalLines - limit} more lines)")
-        return sb.toString()
-    }
 
     // ─── Back press ───────────────────────────────────────────────────────
     override fun onBackPressed() {
