@@ -62,8 +62,8 @@ dependencies {
     implementation "androidx.drawerlayout:drawerlayout:1.2.0"
     implementation "androidx.recyclerview:recyclerview:1.3.1"
 
-    // Sora code editor — proper syntax-highlighted code editing
-    implementation "io.github.rosemoe.sora-editor:editor:0.21.1"
+    // Sora code editor — proper syntax-highlighted code editing (capital R in Rosemoe)
+    implementation "io.github.Rosemoe.sora-editor:editor:0.21.1"
 
     // NanoHTTPD — lightweight HTTP server for HTML preview
     implementation "org.nanohttpd:nanohttpd:2.3.1"
